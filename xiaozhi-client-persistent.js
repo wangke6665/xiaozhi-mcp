@@ -2,8 +2,10 @@
 /**
  * 小欧 - 小智 AI MCP 客户端 (长连接模式)
  * 支持心跳保活、上下文记忆、准实时对话
+ * 全中文工具名和参数
  */
 
+require('dotenv').config();
 const WebSocket = require('ws');
 const fs = require('fs').promises;
 const path = require('path');
@@ -19,233 +21,210 @@ if (!XIAOZHI_MCP_URL) {
   process.exit(1);
 }
 
-// ==================== 配置 ====================
 const CONFIG = {
-  heartbeatInterval: 30000,    // 心跳间隔 30 秒
-  reconnectDelay: 5000,        // 重连延迟 5 秒
-  maxReconnectAttempts: 10,    // 最大重连次数
-  contextTTL: 30 * 60 * 1000,  // 上下文保留 30 分钟
+  heartbeatInterval: 30000,
+  reconnectDelay: 5000,
+  maxReconnectAttempts: 10,
+  contextTTL: 3600000, // 1小时
 };
 
-// ==================== 状态管理 ====================
 const state = {
   ws: null,
   connected: false,
   reconnectAttempts: 0,
   messageId: 1000,
   lastActivity: Date.now(),
-  context: [],                 // 对话上下文
-  pendingPings: new Set(),     // 待回复的 ping
+  context: [],
 };
 
 // ==================== 工具定义 ====================
 const TOOLS = [
   {
-    name: '小欧_chat',
-    description: '与 小欧 AI 助手进行连续对话（支持上下文记忆）',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        message: { type: 'string', description: '要发送的消息内容' },
-        clearContext: { type: 'boolean', description: '是否清空上下文（开始新对话）' }
-      },
-      required: ['message']
-    }
-  },
-  {
-    name: '小欧_read_file',
+    name: '小欧_读取文件',
     description: '读取文件内容',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '文件路径' },
-        limit: { type: 'number', description: '最大读取行数' }
+        路径: { type: 'string', description: '文件路径' },
+        行数限制: { type: 'number', description: '最大读取行数' }
       },
-      required: ['path']
+      required: ['路径']
     }
   },
   {
-    name: '小欧_list_files',
+    name: '小欧_列出文件',
     description: '列出目录中的文件',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: '目录路径' },
-        showHidden: { type: 'boolean', description: '是否显示隐藏文件' }
+        路径: { type: 'string', description: '目录路径' },
+        显示隐藏文件: { type: 'boolean', description: '是否显示隐藏文件' }
       }
     }
   },
   {
-    name: '小欧_send_telegram',
+    name: '小欧_发送电报',
     description: '发送消息到 Telegram',
     inputSchema: {
       type: 'object',
       properties: {
-        message: { type: 'string', description: '要发送的消息内容' },
-        target: { type: 'string', description: '目标用户或群组' }
+        消息: { type: 'string', description: '要发送的消息内容' },
+        目标: { type: 'string', description: '目标用户或群组' }
       },
-      required: ['message']
+      required: ['消息']
     }
   },
   {
-    name: '小欧_send_email',
+    name: '小欧_发送邮件',
     description: '发送邮件（需要配置 SMTP）',
     inputSchema: {
       type: 'object',
       properties: {
-        to: { type: 'string', description: '收件人邮箱地址' },
-        subject: { type: 'string', description: '邮件主题' },
-        body: { type: 'string', description: '邮件正文内容' },
-        html: { type: 'boolean', description: '是否使用 HTML 格式' }
+        收件人: { type: 'string', description: '收件人邮箱地址' },
+        主题: { type: 'string', description: '邮件主题' },
+        正文: { type: 'string', description: '邮件正文内容' },
+        格式: { type: 'boolean', description: '是否使用 HTML 格式' }
       },
-      required: ['to', 'subject', 'body']
+      required: ['收件人', '主题', '正文']
     }
   },
   {
-    name: '小欧_system_info',
+    name: '小欧_系统信息',
     description: '获取系统信息（CPU、内存、磁盘使用情况）',
     inputSchema: { type: 'object', properties: {} }
   },
   {
-    name: '小欧_web_search',
+    name: '小欧_网络搜索',
     description: '搜索网络信息',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: '搜索关键词' },
-        count: { type: 'number', description: '结果数量' }
+        关键词: { type: 'string', description: '搜索关键词' },
+        数量: { type: 'number', description: '结果数量' }
       },
-      required: ['query']
+      required: ['关键词']
     }
   },
   {
-    name: '小欧_screenshot',
+    name: '小欧_网页截图',
     description: '截取网页截图',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: '网页 URL' },
-        fullPage: { type: 'boolean', description: '是否截取完整页面' }
+        网址: { type: 'string', description: '网页 URL' },
+        完整页面: { type: 'boolean', description: '是否截取完整页面' }
       },
-      required: ['url']
+      required: ['网址']
     }
   },
   {
-    name: '小欧_git_status',
+    name: '小欧_状态',
     description: '查看 Git 仓库状态',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Git 仓库路径' }
+        路径: { type: 'string', description: 'Git 仓库路径' }
       }
     }
   },
   {
-    name: '小欧_remind',
-    description: '设置提醒',
+    name: '小欧_重启OpenClaw',
+    description: '重启 OpenClaw 服务',
     inputSchema: {
       type: 'object',
       properties: {
-        message: { type: 'string', description: '提醒内容' },
-        minutes: { type: 'number', description: '多少分钟后提醒' }
+        确认: { type: 'boolean', description: '确认重启（需要为true）' }
       },
-      required: ['message', 'minutes']
+      required: ['确认']
     }
   },
   {
-    name: '小欧_save_note',
+    name: '小欧_切换模型',
+    description: '切换 OpenClaw 使用的 AI 模型',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        模型: { type: 'string', description: '模型名称（如 qwen, coder 等）' }
+      },
+      required: ['模型']
+    }
+  },
+  {
+    name: '小欧_检查版本',
+    description: '检查 OpenClaw 版本',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: '小欧_更新OpenClaw',
+    description: '更新 OpenClaw 到最新版本',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        确认: { type: 'boolean', description: '确认更新（需要为true）' }
+      },
+      required: ['确认']
+    }
+  },
+  {
+    name: '小欧_保存笔记',
     description: '保存笔记到记忆',
     inputSchema: {
       type: 'object',
       properties: {
-        content: { type: 'string', description: '笔记内容' },
-        tag: { type: 'string', description: '标签（可选）' }
+        内容: { type: 'string', description: '笔记内容' },
+        标签: { type: 'string', description: '标签（可选）' }
       },
-      required: ['content']
+      required: ['内容']
     }
   },
   {
-    name: '小欧_calendar_add',
+    name: '小欧_添加日程',
     description: '添加日历事件',
     inputSchema: {
       type: 'object',
       properties: {
-        title: { type: 'string', description: '事件标题' },
-        startTime: { type: 'string', description: '开始时间（ISO 8601 格式）' },
-        endTime: { type: 'string', description: '结束时间（可选）' },
-        description: { type: 'string', description: '事件描述（可选）' },
-        location: { type: 'string', description: '地点（可选）' }
+        标题: { type: 'string', description: '事件标题' },
+        开始时间: { type: 'string', description: '开始时间（ISO 8601 格式）' },
+        结束时间: { type: 'string', description: '结束时间（可选）' },
+        描述: { type: 'string', description: '事件描述（可选）' },
+        地点: { type: 'string', description: '地点（可选）' }
       },
-      required: ['title', 'startTime']
+      required: ['标题', '开始时间']
     }
   },
   {
-    name: '小欧_calendar_list',
+    name: '小欧_查看日程',
     description: '查看日历事件',
     inputSchema: {
       type: 'object',
       properties: {
-        period: { type: 'string', description: '时间段：today、tomorrow、week', enum: ['today', 'tomorrow', 'week'] }
+        时间段: { type: 'string', description: '时间段：今天、明天、本周', enum: ['today', 'tomorrow', 'week'] }
       }
     }
   },
   {
-    name: '小欧_add_expense',
+    name: '小欧_记账',
     description: '记录一笔消费/支出',
     inputSchema: {
       type: 'object',
       properties: {
-        amount: { type: 'number', description: '金额（元）' },
-        category: { type: 'string', description: '分类：餐饮、交通、购物、娱乐、生活、其他' },
-        item: { type: 'string', description: '消费项目/商品名称' },
-        note: { type: 'string', description: '备注（可选）' }
+        金额: { type: 'number', description: '金额（元）' },
+        分类: { type: 'string', description: '分类：餐饮、交通、购物、娱乐、生活、其他' },
+        项目: { type: 'string', description: '消费项目/商品名称' },
+        备注: { type: 'string', description: '备注（可选）' }
       },
-      required: ['amount', 'category', 'item']
+      required: ['金额', '分类', '项目']
     }
   },
   {
-    name: '小欧_expense_report',
+    name: '小欧_消费报告',
     description: '查看消费统计报告',
     inputSchema: {
       type: 'object',
       properties: {
-        period: { type: 'string', description: '时间范围：today、week、month', enum: ['today', 'week', 'month'] }
+        时间范围: { type: 'string', description: '时间范围：今天、本周、本月', enum: ['today', 'week', 'month'] }
       }
     }
-  },
-  {
-    name: '小欧_music_play',
-    description: '播放音乐',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: '歌曲名、歌手或关键词' },
-        source: { type: 'string', description: '音乐源：netease、qq、spotify' }
-      },
-      required: ['query']
-    }
-  },
-  {
-    name: '小欧_music_control',
-    description: '音乐播放控制',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', description: '操作：play、pause、next、prev、stop、volume_up、volume_down', 
-          enum: ['play', 'pause', 'next', 'prev', 'stop', 'volume_up', 'volume_down'] }
-      },
-      required: ['action']
-    }
-  },
-  {
-    name: '小欧_get_context',
-    description: '获取当前对话上下文（查看之前的对话记录）',
-    inputSchema: { type: 'object', properties: {} }
-  },
-  {
-    name: '小欧_clear_context',
-    description: '清空对话上下文（开始新对话）',
-    inputSchema: { type: 'object', properties: {} }
   }
 ];
 
@@ -260,11 +239,9 @@ function log(level, ...args) {
 function addToContext(role, content) {
   state.context.push({ role, content, timestamp: Date.now() });
   
-  // 清理过期上下文
   const now = Date.now();
   state.context = state.context.filter(item => now - item.timestamp < CONFIG.contextTTL);
   
-  // 限制上下文长度（保留最近 20 条）
   if (state.context.length > 20) {
     state.context = state.context.slice(-20);
   }
@@ -297,14 +274,11 @@ function connect() {
 
 function onOpen() {
   log('SUCCESS', '✅ 已连接到小智 MCP 服务器（长连接模式）');
-  log('INFO', `📦 已注册 ${TOOLS.length} 个工具`);
-  log('INFO', '💓 心跳间隔:', CONFIG.heartbeatInterval / 1000, '秒');
-  
+  log('INFO', `📦 ${TOOLS.length} 个工具已注册`);
+  log('INFO', '💓 心跳间隔: 30 秒');
   state.connected = true;
   state.reconnectAttempts = 0;
   state.lastActivity = Date.now();
-  
-  // 启动心跳
   startHeartbeat();
 }
 
@@ -313,66 +287,39 @@ function onMessage(data) {
     const msg = JSON.parse(data.toString());
     state.lastActivity = Date.now();
     
-    // 处理 ping 响应
-    if (msg.id && state.pendingPings.has(msg.id)) {
-      state.pendingPings.delete(msg.id);
-      return;
-    }
-    
     if (msg.method) {
-      log('RECV', `[${msg.method}]`, msg.params ? JSON.stringify(msg.params).substring(0, 80) : '');
       handleRequest(msg);
     }
   } catch (err) {
-    log('ERROR', '解析消息失败:', err.message);
+    log('ERROR', '解析失败:', err.message);
   }
 }
 
 function onError(err) {
-  log('ERROR', '❌ WebSocket 错误:', err.message);
+  log('ERROR', 'WebSocket 错误:', err.message);
 }
 
 function onClose(code, reason) {
-  log('WARN', `👋 连接关闭 (code: ${code}, reason: ${reason})`);
+  log('WARN', `连接关闭 (code: ${code}, reason: ${reason || ''})`);
   state.connected = false;
   stopHeartbeat();
   
-  // 自动重连
   if (state.reconnectAttempts < CONFIG.maxReconnectAttempts) {
     state.reconnectAttempts++;
-    log('INFO', `🔄 ${CONFIG.reconnectDelay / 1000}秒后尝试第 ${state.reconnectAttempts} 次重连...`);
+    log('INFO', `🔄 ${CONFIG.reconnectDelay/1000}秒后尝试第 ${state.reconnectAttempts} 次重连...`);
     setTimeout(connect, CONFIG.reconnectDelay);
   } else {
     log('ERROR', '❌ 达到最大重连次数，请检查网络或重启服务');
-    process.exit(1);
   }
 }
 
-// ==================== 心跳机制 ====================
 let heartbeatTimer = null;
-
 function startHeartbeat() {
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(() => {
-    if (!state.connected || !state.ws) return;
-    
-    // 检查是否超时未收到消息
-    const idleTime = Date.now() - state.lastActivity;
-    if (idleTime > CONFIG.heartbeatInterval * 2) {
-      log('WARN', '⚠️ 长时间无活动，可能已断线');
-      state.ws.terminate();
-      return;
+    if (state.connected && state.ws && state.ws.readyState === WebSocket.OPEN) {
+      state.ws.send(JSON.stringify({ jsonrpc: '2.0', id: ++state.messageId, method: 'ping' }));
     }
-    
-    // 发送 ping
-    const pingId = ++state.messageId;
-    state.pendingPings.add(pingId);
-    state.ws.send(JSON.stringify({
-      jsonrpc: '2.0',
-      id: pingId,
-      method: 'ping'
-    }));
-    
-    log('DEBUG', '💓 发送心跳');
   }, CONFIG.heartbeatInterval);
 }
 
@@ -383,119 +330,101 @@ function stopHeartbeat() {
   }
 }
 
-// ==================== 请求处理 ====================
+// ==================== MCP 请求处理 ====================
 async function handleRequest(msg) {
   const { id, method, params } = msg;
   
   switch (method) {
     case 'initialize':
-      sendResponse(id, {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: { listChanged: true } },
-        serverInfo: { name: '小欧-mcp-server-persistent', version: '3.0.0' }
-      });
+      state.ws.send(JSON.stringify({
+        jsonrpc: '2.0', id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: { tools: { listChanged: true } },
+          serverInfo: { name: '小欧-mcp-server-persistent', version: '3.0.0' }
+        }
+      }));
       break;
     
     case 'tools/list':
-      sendResponse(id, { tools: TOOLS });
+      state.ws.send(JSON.stringify({ jsonrpc: '2.0', id, result: { tools: TOOLS } }));
       break;
     
     case 'tools/call':
+      log('CALL', `🛠️ 调用: ${params?.name}`);
       const result = await handleToolCall(params);
-      sendResponse(id, { content: [{ type: 'text', text: result }] });
+      state.ws.send(JSON.stringify({
+        jsonrpc: '2.0', id,
+        result: { content: [{ type: 'text', text: result }] }
+      }));
       break;
     
     case 'ping':
-      sendResponse(id, {});
+      log('DEBUG', '💓 收到心跳');
+      state.ws.send(JSON.stringify({ jsonrpc: '2.0', id, result: {} }));
       break;
     
     default:
-      log('WARN', '未知方法:', method);
+      log('WARN', `未知方法: ${method}`);
   }
 }
 
-function sendResponse(id, result) {
-  if (!state.ws || !state.connected) return;
-  
-  state.ws.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id,
-    result
-  }));
-}
-
-// ==================== 工具实现 ====================
+// ==================== 工具执行 ====================
 async function handleToolCall(params) {
   const { name, arguments: args } = params || {};
   
   try {
     switch (name) {
-      case '小欧_chat':
-        // 添加上下文记忆
-        addToContext('user', args?.message);
-        const response = generateChatResponse(args?.message, args?.clearContext);
-        addToContext('assistant', response);
-        return response;
+      case '小欧_读取文件':
+        return await readFile(args?.路径, args?.行数限制);
       
-      case '小欧_get_context':
-        return `📜 [对话上下文]\n\n${getContextSummary()}\n\n共 ${state.context.length} 条记录`;
+      case '小欧_列出文件':
+        return await listFiles(args?.路径 || '/root/.openclaw/workspace', args?.显示隐藏文件);
       
-      case '小欧_clear_context':
-        state.context = [];
-        return '🗑️ [上下文已清空]\n\n可以开始新的对话了！';
+      case '小欧_发送电报':
+        return `📱 [小欧] 准备发送消息到 Telegram:\n"${args?.消息}"\n\n⚠️ 实际发送需要在 OpenClaw 界面确认`;
       
-      case '小欧_read_file':
-        return await readFile(args?.path, args?.limit);
+      case '小欧_发送邮件':
+        return await sendEmail(args?.收件人, args?.主题, args?.正文, args?.格式);
       
-      case '小欧_list_files':
-        return await listFiles(args?.path || '/root/.openclaw/workspace', args?.showHidden);
-      
-      case '小欧_send_telegram':
-        return `📱 [小欧] 准备发送消息到 Telegram:\n"${args?.message}"\n\n⚠️ 实际发送需要在 OpenClaw 界面确认`;
-      
-      case '小欧_send_email':
-        return await sendEmail(args?.to, args?.subject, args?.body, args?.html);
-      
-      case '小欧_system_info':
+      case '小欧_系统信息':
         return await getSystemInfo();
       
-      case '小欧_web_search':
-        return `🔍 [小欧] 搜索 "${args?.query}" 已准备就绪\n\n⚠️ 需要配置 Brave API Key 才能执行搜索`;
+      case '小欧_网络搜索':
+        return `🔍 [小欧] 搜索 "${args?.关键词}" 已准备就绪\n\n⚠️ 需要配置 Brave API Key 才能执行搜索`;
       
-      case '小欧_screenshot':
-        return `📸 [小欧] 准备截取网页: ${args?.url}\n\n⚠️ 请在 OpenClaw 界面执行截图操作`;
+      case '小欧_网页截图':
+        return `📸 [小欧] 准备截取网页: ${args?.网址}\n\n⚠️ 请在 OpenClaw 界面执行截图操作`;
       
-      case '小欧_git_status':
-        return await getGitStatus(args?.path);
+      case '小欧_状态':
+        return await getGitStatus(args?.路径);
       
-      case '小欧_remind':
-        return `⏰ [小欧] 提醒已设置:\n内容: "${args?.message}"\n时间: ${args?.minutes} 分钟后`;
+      case '小欧_重启OpenClaw':
+        return await restartOpenClaw(args?.确认);
       
-      case '小欧_save_note':
-        return await saveNote(args?.content, args?.tag);
+      case '小欧_切换模型':
+        return await switchOpenClawModel(args?.模型);
       
-      case '小欧_calendar_add':
-        return await addCalendarEvent(args?.title, args?.startTime, args?.endTime, args?.description, args?.location);
+      case '小欧_检查版本':
+        return await checkOpenClawVersion();
       
-      case '小欧_calendar_list':
-        return await listCalendarEvents(args?.period || 'today');
+      case '小欧_更新OpenClaw':
+        return await updateOpenClaw(args?.确认);
       
-      case '小欧_add_expense':
-        return await addExpense(args?.amount, args?.category, args?.item, args?.note);
+      case '小欧_保存笔记':
+        return await saveNote(args?.内容, args?.标签);
       
-      case '小欧_expense_report':
-        return await getExpenseReport(args?.period || 'today');
+      case '小欧_添加日程':
+        return await addCalendarEvent(args?.标题, args?.开始时间, args?.结束时间, args?.描述, args?.地点);
       
-      case '小欧_music_play':
-        return `🎵 [小欧] 准备播放音乐\n搜索: "${args?.query}"\n来源: ${args?.source || 'netease'}\n\n⚠️ 需要配置音乐播放器`;
+      case '小欧_查看日程':
+        return await listCalendarEvents(args?.时间段 || 'today');
       
-      case '小欧_music_control':
-        const actionNames = {
-          play: '▶️ 播放', pause: '⏸️ 暂停', next: '⏭️ 下一首',
-          prev: '⏮️ 上一首', stop: '⏹️ 停止',
-          volume_up: '🔊 音量+', volume_down: '🔉 音量-'
-        };
-        return `🎵 [小欧] ${actionNames[args?.action] || args?.action}\n\n⚠️ 需要配置音乐播放器`;
+      case '小欧_记账':
+        return await addExpense(args?.金额, args?.分类, args?.项目, args?.备注);
+      
+      case '小欧_消费报告':
+        return await getExpenseReport(args?.时间范围 || 'today');
       
       default:
         return `❌ 未知工具: ${name}`;
@@ -503,32 +432,6 @@ async function handleToolCall(params) {
   } catch (err) {
     return `❌ 执行错误: ${err.message}`;
   }
-}
-
-// 生成带上下文的聊天回复
-function generateChatResponse(message, clearContext) {
-  if (clearContext) {
-    state.context = [];
-    return '🗑️ [上下文已清空]\n\n你好！我是小欧，有什么可以帮你的吗？';
-  }
-  
-  // 简单的上下文感知回复
-  const lowerMsg = message.toLowerCase();
-  
-  if (lowerMsg.includes('你好') || lowerMsg.includes('嗨')) {
-    return `🦞 [小欧] 你好！我是你的 AI 助手。\n\n我可以帮你：\n• 读文件、发消息、查天气\n• 记账、设提醒、管日程\n• 搜网络、截网页、执行命令\n\n当前对话已有 ${state.context.length} 条记录，我会记住我们的对话内容。`;
-  }
-  
-  if (lowerMsg.includes('谢谢') || lowerMsg.includes('感谢')) {
-    return '😊 [小欧] 不客气！有需要随时叫我。';
-  }
-  
-  if (lowerMsg.includes('再见') || lowerMsg.includes('拜拜')) {
-    return '👋 [小欧] 再见！期待下次为你服务。';
-  }
-  
-  // 默认回复
-  return `🦞 [小欧] 收到: "${message}"\n\n我已记录到上下文（当前共 ${state.context.length} 条记录）。你可以说"查看上下文"来了解之前的对话，或者说"清空上下文"开始新话题。`;
 }
 
 // ==================== 工具函数 ====================
@@ -548,10 +451,15 @@ async function readFile(filePath, limit = 100) {
 
 async function listFiles(dirPath, showHidden = false) {
   try {
-    const resolvedPath = path.resolve(dirPath);
-    const entries = await fs.readdir(resolvedPath, { withFileTypes: true });
+    const path = dirPath || '/root/.openclaw/workspace';
+    const entries = await fs.readdir(path, { withFileTypes: true });
     const files = entries
       .filter(e => showHidden || !e.name.startsWith('.'))
+      .sort((a, b) => {
+        if (a.isDirectory() && !b.isDirectory()) return -1;
+        if (!a.isDirectory() && b.isDirectory()) return 1;
+        return a.name.localeCompare(b.name);
+      })
       .map(e => `${e.isDirectory() ? '📁' : '📄'} ${e.name}${e.isDirectory() ? '/' : ''}`)
       .slice(0, 30);
     return `📂 [目录: ${dirPath}]\n${files.join('\n')}${entries.length > 30 ? '\n... (还有 ' + (entries.length - 30) + ' 项)' : ''}`;
@@ -563,11 +471,7 @@ async function listFiles(dirPath, showHidden = false) {
 async function sendEmail(to, subject, body, isHtml = false) {
   if (!to || !subject || !body) return '❌ 请提供收件人、主题和正文';
   
-  const emailData = {
-    to, subject, body, isHtml,
-    timestamp: new Date().toISOString(),
-    status: 'pending'
-  };
+  const emailData = { to, subject, body, isHtml, timestamp: new Date().toISOString(), status: 'pending' };
   
   try {
     const emailPath = '/root/.openclaw/workspace/memory/pending-emails.json';
@@ -606,25 +510,67 @@ async function getGitStatus(repoPath) {
   }
 }
 
-async function saveNote(content, tag = '') {
+async function restartOpenClaw(confirm) {
+  if (!confirm) return '❌ 需要确认参数为 true 才能重启';
+  try {
+    const { stdout } = await execPromise('openclaw gateway restart 2>&1', { timeout: 15000 });
+    return `🔄 [OpenClaw 重启]\n${stdout}\n\n✅ 重启命令已执行`;
+  } catch (err) {
+    return `❌ 重启失败: ${err.message}`;
+  }
+}
+
+async function switchOpenClawModel(model) {
+  if (!model) return '❌ 请指定模型名称';
+  try {
+    const { stdout } = await execPromise(`openclaw config set agents.defaults.model.primary "${model}" 2>&1`);
+    return `🔧 [模型切换]\n已切换到: ${model}\n\n${stdout}\n\n⚠️ 重启服务后生效`;
+  } catch (err) {
+    return `❌ 切换失败: ${err.message}`;
+  }
+}
+
+async function checkOpenClawVersion() {
+  try {
+    const { stdout } = await execPromise('openclaw --version 2>&1');
+    const version = stdout.trim();
+    return `📦 [OpenClaw 版本]\n当前版本: ${version}\n\n检查更新: openclaw update --dry-run`;
+  } catch (err) {
+    return `❌ 检查失败: ${err.message}`;
+  }
+}
+
+async function updateOpenClaw(confirm) {
+  if (!confirm) return '❌ 需要确认参数为 true 才能更新';
+  try {
+    const { stdout } = await execPromise('npm install -g openclaw@latest 2>&1', { timeout: 60000 });
+    return `🆙 [OpenClaw 更新]\n${stdout}\n\n✅ 更新完成，建议重启服务`;
+  } catch (err) {
+    return `❌ 更新失败: ${err.message}`;
+  }
+}
+
+async function saveNote(内容, 标签 = '') {
   try {
     const notePath = '/root/.openclaw/workspace/memory/xiaozhi-notes.md';
     const timestamp = new Date().toISOString();
-    const entry = `\n## ${timestamp}${tag ? ` [${tag}]` : ''}\n${content}\n`;
+    const entry = `\n## ${timestamp}${标签 ? ` [${标签}]` : ''}\n${内容}\n`;
     await fs.appendFile(notePath, entry, 'utf8');
-    return `📝 [笔记已保存]\n标签: ${tag || '无'}\n内容预览: "${content.substring(0, 50)}${content.length > 50 ? '...' : ''}"`;
+    return `📝 [笔记已保存]\n标签: ${标签 || '无'}\n内容预览: "${内容.substring(0, 50)}${内容.length > 50 ? '...' : ''}"`;
   } catch (err) {
     return `❌ 保存失败: ${err.message}`;
   }
 }
 
-async function addCalendarEvent(title, startTime, endTime, description = '', location = '') {
-  if (!title || !startTime) return '❌ 请提供事件标题和开始时间';
+async function addCalendarEvent(标题, 开始时间, 结束时间, 描述 = '', 地点 = '') {
+  if (!标题 || !开始时间) return '❌ 请提供事件标题和开始时间';
   
   const event = {
-    title, startTime,
-    endTime: endTime || new Date(new Date(startTime).getTime() + 60 * 60 * 1000).toISOString(),
-    description, location,
+    title: 标题,
+    startTime: 开始时间,
+    endTime: 结束时间 || new Date(new Date(开始时间).getTime() + 60 * 60 * 1000).toISOString(),
+    description: 描述,
+    location: 地点,
     createdAt: new Date().toISOString()
   };
   
@@ -637,16 +583,15 @@ async function addCalendarEvent(title, startTime, endTime, description = '', loc
     } catch (e) {}
     events.push(event);
     await fs.writeFile(calendarPath, JSON.stringify(events, null, 2), 'utf8');
-    
-    const start = new Date(startTime);
-    const timeStr = start.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return `📅 [事件已添加]\n标题: ${title}\n时间: ${timeStr}${endTime ? '' : ' (持续1小时)'}\n${location ? '📍 地点: ' + location + '\n' : ''}${description ? '📝 备注: ' + description : ''}`;
+
+    const time = new Date(开始时间).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `📅 [事件已添加]\n📌 ${标题}\n🕒 ${time}\n${地点 ? '📍 ' + 地点 : ''}\n${描述 ? '📝 ' + 描述 : ''}`;
   } catch (err) {
-    return `❌ 添加事件失败: ${err.message}`;
+    return `❌ 添加失败: ${err.message}`;
   }
 }
 
-async function listCalendarEvents(period = 'today') {
+async function listCalendarEvents(时间段 = 'today') {
   try {
     const calendarPath = '/root/.openclaw/workspace/memory/calendar-events.json';
     let events = [];
@@ -654,7 +599,7 @@ async function listCalendarEvents(period = 'today') {
       const existing = await fs.readFile(calendarPath, 'utf8');
       events = JSON.parse(existing);
     } catch (e) {
-      return `📅 [日历-${period}]\n暂无事件`;
+      return `📅 [日历-${时间段}]\n暂无事件`;
     }
     
     const now = new Date();
@@ -664,7 +609,7 @@ async function listCalendarEvents(period = 'today') {
     
     let filtered = events.filter(e => {
       const eventTime = new Date(e.startTime);
-      switch (period) {
+      switch (时间段) {
         case 'today': return eventTime >= today && eventTime < tomorrow;
         case 'tomorrow': return eventTime >= tomorrow && eventTime < new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000);
         case 'week': return eventTime >= today && eventTime < weekEnd;
@@ -673,10 +618,10 @@ async function listCalendarEvents(period = 'today') {
     });
     
     filtered.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
-    if (filtered.length === 0) return `📅 [日历-${period}]\n该时间段暂无事件`;
+    if (filtered.length === 0) return `📅 [日历-${时间段}]\n该时间段暂无事件`;
     
     const periodNames = { today: '今天', tomorrow: '明天', week: '本周' };
-    let result = `📅 [${periodNames[period] || period}的日程]\n共 ${filtered.length} 个事件:\n`;
+    let result = `📅 [${periodNames[时间段] || 时间段}的日程]\n共 ${filtered.length} 个事件:\n`;
     filtered.forEach((e, i) => {
       const time = new Date(e.startTime).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       result += `\n${i + 1}. ${e.title}\n   🕒 ${time}${e.location ? ' 📍 ' + e.location : ''}`;
@@ -687,11 +632,14 @@ async function listCalendarEvents(period = 'today') {
   }
 }
 
-async function addExpense(amount, category, item, note = '') {
-  if (!amount || !category || !item) return '❌ 请提供金额、分类和消费项目';
+async function addExpense(金额, 分类, 项目, 备注 = '') {
+  if (!金额 || !分类 || !项目) return '❌ 请提供金额、分类和消费项目';
   
   const expense = {
-    amount: parseFloat(amount), category, item, note,
+    amount: parseFloat(金额),
+    category: 分类,
+    item: 项目,
+    note: 备注,
     timestamp: new Date().toISOString(),
     date: new Date().toLocaleDateString('zh-CN')
   };
@@ -705,13 +653,13 @@ async function addExpense(amount, category, item, note = '') {
     } catch (e) {}
     expenses.push(expense);
     await fs.writeFile(expensePath, JSON.stringify(expenses, null, 2), 'utf8');
-    return `💰 [记账成功]\n📦 ${item}\n💵 ¥${amount.toFixed(2)}\n🏷️ ${category}${note ? '\n📝 ' + note : ''}`;
+    return `💰 [记账成功]\n📦 ${项目}\n💵 ¥${金额.toFixed(2)}\n🏷️ ${分类}${备注 ? '\n📝 ' + 备注 : ''}`;
   } catch (err) {
     return `❌ 记账失败: ${err.message}`;
   }
 }
 
-async function getExpenseReport(period = 'today') {
+async function getExpenseReport(时间范围 = 'today') {
   try {
     const expensePath = '/root/.openclaw/workspace/memory/expenses.json';
     let expenses = [];
@@ -719,17 +667,17 @@ async function getExpenseReport(period = 'today') {
       const existing = await fs.readFile(expensePath, 'utf8');
       expenses = JSON.parse(existing);
     } catch (e) {
-      return `💰 [消费报告-${period}]\n暂无记录`;
+      return `💰 [消费报告-${时间范围}]\n暂无记录`;
     }
     
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
     const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
+
     let filtered = expenses.filter(e => {
       const expenseDate = new Date(e.timestamp);
-      switch (period) {
+      switch (时间范围) {
         case 'today': return expenseDate >= today;
         case 'week': return expenseDate >= weekAgo;
         case 'month': return expenseDate >= monthAgo;
@@ -737,14 +685,14 @@ async function getExpenseReport(period = 'today') {
       }
     });
     
-    if (filtered.length === 0) return `💰 [消费报告-${period}]\n该时间段暂无记录`;
+    if (filtered.length === 0) return `💰 [消费报告-${时间范围}]\n该时间段暂无记录`;
     
     const total = filtered.reduce((sum, e) => sum + e.amount, 0);
     const byCategory = {};
     filtered.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
     
     const periodNames = { today: '今天', week: '本周', month: '本月' };
-    let result = `💰 [${periodNames[period] || period}消费报告]\n📊 共 ${filtered.length} 笔，总计 ¥${total.toFixed(2)}\n\n📈 分类统计:\n`;
+    let result = `💰 [${periodNames[时间范围] || 时间范围}消费报告]\n📊 共 ${filtered.length} 笔，总计 ¥${total.toFixed(2)}\n\n📈 分类统计:\n`;
     Object.entries(byCategory).sort((a, b) => b[1] - a[1]).forEach(([cat, amt]) => {
       result += `  • ${cat}: ¥${amt.toFixed(2)} (${((amt / total) * 100).toFixed(1)}%)\n`;
     });
@@ -764,7 +712,6 @@ log('INFO', `⚙️ 配置: 心跳=${CONFIG.heartbeatInterval/1000}s, 重连延�
 
 connect();
 
-// 保持进程运行
 process.on('SIGINT', () => {
   log('INFO', '\n👋 收到退出信号，正在关闭...');
   stopHeartbeat();
