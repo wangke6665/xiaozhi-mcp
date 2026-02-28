@@ -1,0 +1,66 @@
+#!/bin/bash
+# OpenClaw - 小智 AI MCP 客户端服务脚本
+
+LOG_FILE="/tmp/xiaozhi-mcp.log"
+PID_FILE="/tmp/xiaozhi-mcp.pid"
+CLIENT_SCRIPT="/root/.openclaw/workspace/xiaozhi-client.js"
+
+# Searxng 搜索实例（免费）
+export SEARXNG_URL="https://searx.tiekoetter.com"
+
+case "$1" in
+  start)
+    if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
+      echo "小智 MCP 客户端已在运行 (PID: $(cat $PID_FILE))"
+      exit 0
+    fi
+    echo "启动小智 MCP 客户端..."
+    nohup node "$CLIENT_SCRIPT" >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    sleep 2
+    if kill -0 $(cat "$PID_FILE") 2>/dev/null; then
+      echo "✅ 启动成功 (PID: $(cat $PID_FILE))"
+      echo "📋 日志: tail -f $LOG_FILE"
+    else
+      echo "❌ 启动失败"
+      rm -f "$PID_FILE"
+    fi
+    ;;
+  
+  stop)
+    if [ -f "$PID_FILE" ]; then
+      PID=$(cat "$PID_FILE")
+      if kill -0 "$PID" 2>/dev/null; then
+        echo "停止小智 MCP 客户端 (PID: $PID)..."
+        kill "$PID"
+        rm -f "$PID_FILE"
+        echo "✅ 已停止"
+      else
+        echo "进程不存在"
+        rm -f "$PID_FILE"
+      fi
+    else
+      echo "小智 MCP 客户端未运行"
+    fi
+    ;;
+  
+  status)
+    if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
+      echo "🟢 小智 MCP 客户端运行中 (PID: $(cat $PID_FILE))"
+      echo "📋 最近日志:"
+      tail -10 "$LOG_FILE"
+    else
+      echo "🔴 小智 MCP 客户端未运行"
+      rm -f "$PID_FILE"
+    fi
+    ;;
+  
+  log)
+    tail -f "$LOG_FILE"
+    ;;
+  
+  *)
+    echo "用法: $0 {start|stop|status|log}"
+    exit 1
+    ;;
+esac
