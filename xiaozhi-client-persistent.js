@@ -128,6 +128,17 @@ const TOOLS = [
     }
   },
   {
+    name: '小欧_执行命令',
+    description: '在服务器上执行 Shell 命令',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        命令: { type: 'string', description: '要执行的命令' }
+      },
+      required: ['命令']
+    }
+  },
+  {
     name: '小欧_重启OpenClaw',
     description: '重启 OpenClaw 服务',
     inputSchema: {
@@ -399,6 +410,9 @@ async function handleToolCall(params) {
       case '小欧_状态':
         return await getGitStatus(args?.路径);
       
+      case '小欧_执行命令':
+        return await executeShellCommand(args?.命令);
+      
       case '小欧_重启OpenClaw':
         return await restartOpenClaw(args?.确认);
       
@@ -507,6 +521,18 @@ async function getGitStatus(repoPath) {
     return `🌿 [Git 状态: ${cwd}]\n${stdout || '工作区干净，无未提交更改'}`;
   } catch (err) {
     return `❌ Git 检查失败: ${err.message}`;
+  }
+}
+
+async function executeShellCommand(command) {
+  if (!command) return '❌ 请提供要执行的命令';
+  try {
+    const { stdout, stderr } = await execPromise(command, { timeout: 30000 });
+    const result = stdout || '';
+    const errors = stderr || '';
+    return `💻 [执行命令: ${command}]\n${result}${errors ? '\n⚠️ 错误输出:\n' + errors : ''}`;
+  } catch (err) {
+    return `❌ 执行失败: ${err.message}`;
   }
 }
 
