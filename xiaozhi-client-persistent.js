@@ -236,6 +236,57 @@ const TOOLS = [
         时间范围: { type: 'string', description: '时间范围：今天、本周、本月', enum: ['today', 'week', 'month'] }
       }
     }
+  },
+  {
+    name: '小欧_发布小红书',
+    description: '发布小红书笔记',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        标题: { type: 'string', description: '笔记标题（不超过20字）' },
+        内容: { type: 'string', description: '笔记正文（不超过1000字）' },
+        标签: { type: 'string', description: '标签，用逗号分隔' },
+        图片数量: { type: 'number', description: '自动生成图片数量（默认3）' }
+      },
+      required: ['标题', '内容']
+    }
+  },
+  {
+    name: '小欧_生成小红书',
+    description: 'AI生成小红书内容',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        主题: { type: 'string', description: '笔记主题' },
+        风格: { type: 'string', description: '文案风格：default/review/tutorial/daily', enum: ['default', 'review', 'tutorial', 'daily'] }
+      },
+      required: ['主题']
+    }
+  },
+  {
+    name: '小欧_小红书状态',
+    description: '检查小红书登录状态',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: '小欧_小红书热点',
+    description: '获取当前热点话题',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        数量: { type: 'number', description: '返回热点数量（默认10）' }
+      }
+    }
+  },
+  {
+    name: '小欧_小红书统计',
+    description: '查看小红书发布统计',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        天数: { type: 'number', description: '统计天数（默认7）' }
+      }
+    }
   }
 ];
 
@@ -439,6 +490,21 @@ async function handleToolCall(params) {
       
       case '小欧_消费报告':
         return await getExpenseReport(args?.时间范围 || 'today');
+      
+      case '小欧_发布小红书':
+        return await publishXHS(args?.标题, args?.内容, args?.标签, args?.图片数量);
+      
+      case '小欧_生成小红书':
+        return await generateXHS(args?.主题, args?.风格);
+      
+      case '小欧_小红书状态':
+        return await checkXHSStatus();
+      
+      case '小欧_小红书热点':
+        return await getXHSTrending(args?.数量);
+      
+      case '小欧_小红书统计':
+        return await getXHSStats(args?.天数);
       
       default:
         return `❌ 未知工具: ${name}`;
@@ -757,6 +823,68 @@ async function getExpenseReport(时间范围 = 'today') {
     return result;
   } catch (err) {
     return `❌ 读取账单失败: ${err.message}`;
+  }
+}
+
+async function publishXHS(title, content, tags, imageCount) {
+  if (!title || !content) return '❌ 请提供标题和内容';
+  
+  try {
+    const skillPath = '/root/.openclaw/skills/xhs-publisher';
+    let cmd = `python3 ${skillPath}/scripts/xhs_auto.py publish --title "${title}" --content "${content}"`;
+    
+    if (tags) cmd += ` --tags "${tags}"`;
+    if (imageCount) cmd += ` --image-count ${imageCount}`;
+    cmd += ' --headless';
+    
+    const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 });
+    return `📕 [小红书发布]\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+  } catch (err) {
+    return `❌ 发布失败: ${err.message}`;
+  }
+}
+
+async function generateXHS(topic, style = 'default') {
+  if (!topic) return '❌ 请提供主题';
+  
+  try {
+    const skillPath = '/root/.openclaw/skills/xhs-publisher';
+    const cmd = `python3 ${skillPath}/scripts/xhs_auto.py generate --topic "${topic}" --style ${style}`;
+    
+    const { stdout, stderr } = await execPromise(cmd, { timeout: 30000 });
+    return `✨ [小红书内容生成]\n主题: ${topic}\n风格: ${style}\n\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+  } catch (err) {
+    return `❌ 生成失败: ${err.message}`;
+  }
+}
+
+async function checkXHSStatus() {
+  try {
+    const skillPath = '/root/.openclaw/skills/xhs-publisher';
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py status`, { timeout: 10000 });
+    return `🔐 [小红书登录状态]\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+  } catch (err) {
+    return `❌ 检查失败: ${err.message}`;
+  }
+}
+
+async function getXHSTrending(limit = 10) {
+  try {
+    const skillPath = '/root/.openclaw/skills/xhs-publisher';
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py trending fetch --text --limit ${limit}`, { timeout: 15000 });
+    return `🔥 [小红书热点] Top ${limit}\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+  } catch (err) {
+    return `❌ 获取热点失败: ${err.message}`;
+  }
+}
+
+async function getXHSStats(days = 7) {
+  try {
+    const skillPath = '/root/.openclaw/skills/xhs-publisher';
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py stats --days ${days}`, { timeout: 10000 });
+    return `📊 [小红书统计] 最近 ${days} 天\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+  } catch (err) {
+    return `❌ 获取统计失败: ${err.message}`;
   }
 }
 
