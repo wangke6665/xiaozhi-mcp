@@ -482,6 +482,34 @@ async function listFiles(dirPath, showHidden = false) {
   }
 }
 
+async function sendTelegramMessage(message, target = null) {
+  if (!message) return '❌ 请提供消息内容';
+  
+  const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8066651062:AAFlM9hHtXCf-iOu3tjgRVXvkqm5PFeEakU';
+  const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '7597776041';
+  const CHAT_ID = target || DEFAULT_CHAT_ID;
+  
+  try {
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+    const payload = {
+      chat_id: CHAT_ID,
+      text: message,
+      parse_mode: 'HTML'
+    };
+    
+    const { stdout } = await execPromise(`curl -s -X POST "${url}" -H "Content-Type: application/json" -d '${JSON.stringify(payload)}'`);
+    const response = JSON.parse(stdout);
+    
+    if (response.ok) {
+      return `✅ [Telegram消息已发送]\n消息: "${message}"\n目标: ${CHAT_ID}`;
+    } else {
+      return `❌ 发送失败: ${response.description}`;
+    }
+  } catch (err) {
+    return `❌ 发送失败: ${err.message}`;
+  }
+}
+
 async function sendEmail(to, subject, body, isHtml = false) {
   if (!to || !subject || !body) return '❌ 请提供收件人、主题和正文';
   
