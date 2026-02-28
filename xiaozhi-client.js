@@ -11,7 +11,13 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 
-const XIAOZHI_MCP_URL = 'wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjgwODYzMiwiYWdlbnRJZCI6MTUwNzQzMywiZW5kcG9pbnRJZCI6ImFnZW50XzE1MDc0MzMiLCJwdXJwb3NlIjoibWNwLWVuZHBvaW50IiwiaWF0IjoxNzcyMTY0NjY3LCJleHAiOjE4MDM3MjIyNjd9.oIsr5MlphfNMap7VcMsBzTShiXRk-z5fzFolDoWZho25dGL-B0RxnaGlCECLQRzJWFWdtgkATWtISXc0XwFrYQ';
+const XIAOZHI_MCP_URL = process.env.XIAOZHI_MCP_URL;
+
+if (!XIAOZHI_MCP_URL) {
+  console.error('❌ 错误：请设置 XIAOZHI_MCP_URL 环境变量');
+  console.error('   复制 .env.example 为 .env 并填入你的 token');
+  process.exit(1);
+}
 
 console.log('🔌 正在连接小智 AI MCP 服务器...');
 console.log('📝 模式：作为工具提供者让小智调用\n');

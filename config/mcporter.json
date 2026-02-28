@@ -4,7 +4,7 @@
       "command": "node",
       "args": ["/root/.openclaw/workspace/xiaozhi-mcp-bridge.js"],
       "env": {
-        "XIAOZHI_MCP_URL": "wss://api.xiaozhi.me/mcp/?token=eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjgwODYzMiwiYWdlbnRJZCI6MTUwNzQzMywiZW5kcG9pbnRJZCI6ImFnZW50XzE1MDc0MzMiLCJwdXJwb3NlIjoibWNwLWVuZHBvaW50IiwiaWF0IjoxNzcyMTY0NjY3LCJleHAiOjE4MDM3MjIyNjd9.oIsr5MlphfNMap7VcMsBzTShiXRk-z5fzFolDoWZho25dGL-B0RxnaGlCECLQRzJWFWdtgkATWtISXc0XwFrYQ"
+        "XIAOZHI_MCP_URL": "${XIAOZHI_MCP_URL}"
       }
     }
   },
