@@ -837,10 +837,10 @@ async function publishXHS(title, content, tags, imageCount) {
     if (imageCount) cmd += ` --image-count ${imageCount}`;
     cmd += ' --headless';
     
-    const { stdout, stderr } = await execPromise(cmd, { timeout: 60000 });
+    const { stdout, stderr } = await execPromise(cmd, { timeout: 180000 });
     return `📕 [小红书发布]\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
   } catch (err) {
-    return `❌ 发布失败: ${err.message}`;
+    return `❌ 发布失败: ${err.message}\n\n💡 提示: 发布可能需要60-120秒，请检查浏览器数据目录是否有效`;
   }
 }
 
@@ -849,19 +849,23 @@ async function generateXHS(topic, style = 'default') {
   
   try {
     const skillPath = '/root/.openclaw/skills/xhs-publisher';
-    const cmd = `python3 ${skillPath}/scripts/xhs_auto.py generate --topic "${topic}" --style ${style}`;
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/content_gen.py generate "${topic}" --style ${style}`, { timeout: 60000 });
     
-    const { stdout, stderr } = await execPromise(cmd, { timeout: 30000 });
-    return `✨ [小红书内容生成]\n主题: ${topic}\n风格: ${style}\n\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+    try {
+      const result = JSON.parse(stdout);
+      return `✨ [小红书内容生成]\n主题: ${topic}\n风格: ${style}\n\n📌 标题: ${result.title}\n\n📝 正文:\n${result.content}\n\n🏷️ 标签: ${result.tags.join(', ')}\n\n💬 互动引导: ${result.call_to_action}`;
+    } catch (e) {
+      return `✨ [小红书内容生成]\n主题: ${topic}\n风格: ${style}\n\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
+    }
   } catch (err) {
-    return `❌ 生成失败: ${err.message}`;
+    return `❌ 生成失败: ${err.message}\n\n💡 提示: 内容生成可能需要30-60秒，请稍后重试`;
   }
 }
 
 async function checkXHSStatus() {
   try {
     const skillPath = '/root/.openclaw/skills/xhs-publisher';
-    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py status`, { timeout: 10000 });
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py status`, { timeout: 30000 });
     return `🔐 [小红书登录状态]\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
   } catch (err) {
     return `❌ 检查失败: ${err.message}`;
@@ -871,17 +875,17 @@ async function checkXHSStatus() {
 async function getXHSTrending(limit = 10) {
   try {
     const skillPath = '/root/.openclaw/skills/xhs-publisher';
-    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py trending fetch --text --limit ${limit}`, { timeout: 15000 });
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py trending fetch --text --limit ${limit}`, { timeout: 60000 });
     return `🔥 [小红书热点] Top ${limit}\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
   } catch (err) {
-    return `❌ 获取热点失败: ${err.message}`;
+    return `❌ 获取热点失败: ${err.message}\n\n💡 热点数据采集可能需要20-60秒，请稍后重试`;
   }
 }
 
 async function getXHSStats(days = 7) {
   try {
     const skillPath = '/root/.openclaw/skills/xhs-publisher';
-    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py stats --days ${days}`, { timeout: 10000 });
+    const { stdout, stderr } = await execPromise(`python3 ${skillPath}/scripts/xhs_auto.py stats --days ${days}`, { timeout: 30000 });
     return `📊 [小红书统计] 最近 ${days} 天\n${stdout}${stderr ? '\n⚠️ ' + stderr : ''}`;
   } catch (err) {
     return `❌ 获取统计失败: ${err.message}`;
