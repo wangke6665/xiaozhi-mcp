@@ -1,0 +1,31 @@
+# 企业微信配置
+wecom:
+  # 企业ID
+  corpid: "你的企业ID"
+
+  # 应用配置
+  agent:
+    # 应用Secret
+    secret: "你的应用Secret"
+    # 应用ID
+    agentid: 1000001
+
+  # 接收消息的用户/部门
+  # to_user: @all  # @all=所有人，也可以指定用户ID，如：zhangsan|lisi
+  # to_party: ""  # 部门ID，如：1|2
+
+  # 群机器人配置（可选）
+  webhook:
+    enabled: false
+    key: ""
+
+# OpenClaw 集成配置
+openclaw:
+  webhook_url: "http://localhost:18789/wecom"
+  secret: "webhook_secret_key"
+
+# 服务配置
+server:
+  host: "0.0.0.0"
+  port: 8900
+  debug: false

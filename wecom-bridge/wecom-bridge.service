@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenClaw 企业微信桥接服务
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/.openclaw/workspace/wecom-bridge
+Environment="PATH=/root/.openclaw/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/root/.openclaw/venv/bin/python main.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

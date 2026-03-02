@@ -1,0 +1,36 @@
+{
+  "id": "wecom",
+  "name": "企业微信",
+  "version": "1.0.0",
+  "description": "OpenClaw 企业微信通道插件",
+  "channels": ["wecom"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "corpid": {
+        "type": "string",
+        "description": "企业ID"
+      },
+      "corpsecret": {
+        "type": "string",
+        "description": "应用Secret"
+      },
+      "agentid": {
+        "type": "string",
+        "description": "应用ID"
+      },
+      "token": {
+        "type": "string",
+        "description": "Token"
+      },
+      "encodingAESKey": {
+        "type": "string",
+        "description": "EncodingAESKey"
+      }
+    },
+    "required": ["corpid", "corpsecret", "agentid", "token", "encodingAESKey"]
+  },
+  "runtime": "dist/runtime.js",
+  "main": "dist/channel.js"
+}
